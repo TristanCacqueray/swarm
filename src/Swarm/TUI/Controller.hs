@@ -50,6 +50,8 @@ import           Control.Lens
 import           Control.Lens.Extras       (is)
 import           Control.Monad.Except
 import           Control.Monad.State
+import           Control.Monad.STM (atomically)
+import           Control.Concurrent.STM.TVar (writeTVar)
 import           Data.Bits
 import           Data.Either               (isRight)
 import           Data.Int                  (Int64)
@@ -143,6 +145,12 @@ runFrame = do
   prevTime <- use (uiState . lastFrameTime)
   curTime <- liftIO $ getTime Monotonic
   let frameTime = diffTimeSpec curTime prevTime
+      frameTimeMS = toNanoSecs frameTime `div` 1_000_000
+      frameTimeCap = 17 -- about 60 fps
+      waitMS = frameTimeCap - min frameTimeCap (fromInteger frameTimeMS)
+
+  frameDelayTVar <- use (uiState . frameDelay)
+  liftIO $ atomically $ writeTVar frameDelayTVar (waitMS * 1_000_000)
 
   -- Remember now as the new previous time.
   uiState . lastFrameTime .= curTime

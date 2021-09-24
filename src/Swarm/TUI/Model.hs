@@ -33,6 +33,7 @@ module Swarm.TUI.Model
   , uiFocusRing, uiReplForm, uiReplType, uiReplHistory, uiReplHistIdx
   , uiInventory, uiError, lgTicksPerSecond
   , lastFrameTime, accumulatedTime, frameTicks, frameTickHist, ticksPerFrame
+  , frameDelay
 
     -- ** Initialization
 
@@ -50,7 +51,7 @@ module Swarm.TUI.Model
     -- * App state
   , AppState
     -- ** Fields
-  , gameState, uiState
+  , gameState, uiState, getFrameDelay
     -- ** Initialization
   , initAppState
 
@@ -59,6 +60,7 @@ module Swarm.TUI.Model
 import           Control.Lens
 import           Control.Monad.Except
 import           Control.Monad.State
+import           Control.Concurrent.STM.TVar (TVar, newTVarIO, readTVarIO)
 import           Data.List            (findIndex, sortOn)
 import           Data.Maybe           (fromMaybe)
 import           Data.Text            (Text)
@@ -144,6 +146,7 @@ data UIState = UIState
   , _frameTickHist    :: [Int]
   , _lastFrameTime    :: TimeSpec
   , _accumulatedTime  :: TimeSpec
+  , _frameDelay       :: TVar Int
   }
 
 makeLensesWith (lensRules & generateSignatures .~ False) ''UIState
@@ -233,6 +236,7 @@ initUIState :: ExceptT Text IO UIState
 initUIState = liftIO $ do
   mhist <- (>>= readMaybe @[REPLHistItem]) <$> readFileMay ".swarm_history"
   startTime <- getTime Monotonic
+  frameDelay <- newTVarIO 0
   return $ UIState
     { _uiFocusRing      = initFocusRing
     , _uiReplForm       = initReplForm
@@ -246,6 +250,7 @@ initUIState = liftIO $ do
     , _accumulatedTime  = 0
     , _frameTicks       = 0
     , _frameTickHist    = []
+    , _frameDelay       = frameDelay
     }
 
 ------------------------------------------------------------
@@ -321,6 +326,9 @@ uiState :: Lens' AppState UIState
 initAppState :: ExceptT Text IO AppState
 initAppState = AppState <$> initGameState <*> initUIState
 
+-- | Utility function used by the main App loop
+getFrameDelay :: AppState -> IO Int
+getFrameDelay s = readTVarIO (s ^. uiState . frameDelay)
 
 ------------------------------------------------------------
 --

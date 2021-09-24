@@ -59,7 +59,7 @@ appMain = do
 
       chan <- newBChan 5
       _ <- forkIO $ forever $ do
-        threadDelay 100000
+        threadDelay =<< getFrameDelay s
         writeBChan chan Frame
 
       -- Run the app.
