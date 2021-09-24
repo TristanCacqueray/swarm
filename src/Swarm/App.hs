@@ -14,7 +14,7 @@
 
 module Swarm.App where
 
-import           Control.Concurrent   (forkIO)
+import           Control.Concurrent   (forkIO, threadDelay)
 
 import           Brick
 import           Brick.BChan
@@ -58,7 +58,9 @@ appMain = do
       -- and do another write.
 
       chan <- newBChan 5
-      _ <- forkIO $ forever $ writeBChan chan Frame
+      _ <- forkIO $ forever $ do
+        threadDelay 100000
+        writeBChan chan Frame
 
       -- Run the app.
 
