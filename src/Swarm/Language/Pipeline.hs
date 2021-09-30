@@ -62,18 +62,18 @@ processTerm :: Text -> Either Text ProcessedTerm
 processTerm = processTerm' empty empty
 
 -- | Like 'processTerm', but use a term that has already been parsed.
-processParsedTerm :: Term -> Either Text ProcessedTerm
+processParsedTerm :: Syntax -> Either Text ProcessedTerm
 processParsedTerm = processParsedTerm' empty empty
 
 -- | Like 'processTerm', but use explicit starting contexts.
 processTerm' :: TCtx -> CapCtx -> Text -> Either Text ProcessedTerm
 processTerm' ctx capCtx txt = do
-  Syntax _ t <- readTerm txt
+  t <- readTerm txt
   processParsedTerm' ctx capCtx t
 
 -- | Like 'processTerm'', but use a term that has already been parsed.
-processParsedTerm' :: TCtx -> CapCtx -> Term -> Either Text ProcessedTerm
-processParsedTerm' ctx capCtx t = do
+processParsedTerm' :: TCtx -> CapCtx -> Syntax -> Either Text ProcessedTerm
+processParsedTerm' ctx capCtx t@(STerm t') = do
   ty <- first prettyText (inferTop ctx t)
-  let (caps, capCtx') = requiredCaps capCtx t
-  return $ ProcessedTerm (elaborate t) ty caps capCtx'
+  let (caps, capCtx') = requiredCaps capCtx t'
+  return $ ProcessedTerm (elaborate t') ty caps capCtx'

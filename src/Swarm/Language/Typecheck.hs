@@ -252,19 +252,19 @@ instance Fallible TypeF IntVar TypeErr where
 -- | Top-level type inference function: given a context of definition
 --   types and a top-level term, either return a type error or its
 --   type as a 'TModule'.
-inferTop :: TCtx -> Term -> Either TypeErr TModule
+inferTop :: TCtx -> Syntax -> Either TypeErr TModule
 inferTop ctx = runInfer ctx . inferModule
 
 -- | Infer the signature of a top-level expression which might
 --   contain definitions.
-inferModule :: Term -> Infer UModule
+inferModule :: Syntax -> Infer UModule
 inferModule = \case
 
   -- For definitions with no type signature, make up a fresh type
   -- variable for the body, infer the body under an extended context,
   -- and unify the two.  Then generalize the type and return an
   -- appropriate context.
-  TSDef x Nothing t1 -> do
+  STerm (TDef x Nothing t1) -> do
     xTy <- fresh
     ty <- withBinding x (Forall [] xTy) $ infer t1
     xTy =:= ty
@@ -273,7 +273,7 @@ inferModule = \case
 
   -- If a (poly)type signature has been provided, skolemize it and
   -- check the definition.
-  TSDef x (Just pty) t1 -> do
+  STerm (TDef x (Just pty) t1) -> do
     let upty = toU pty
     uty <- skolemize upty
     withBinding x upty $ check t1 uty
@@ -282,7 +282,7 @@ inferModule = \case
   -- To handle a 'TBind', infer the types of both sides, combining the
   -- returned modules appropriately.  Have to be careful to use the
   -- correct context when checking the right-hand side in particular.
-  TSBind mx c1 c2 -> do
+  STerm (TBind mx c1 c2) -> do
 
     -- First, infer the left side.
     Module cmda ctx1 <- inferModule c1
@@ -313,43 +313,43 @@ inferModule = \case
   t -> trivMod <$> infer t
 
 -- | Infer the type of a term which does not contain definitions.
-infer :: Term -> Infer UType
+infer :: Syntax -> Infer UType
 
-infer   TUnit                     = return UTyUnit
-infer   (TConst c)                = instantiate $ inferConst c
-infer   (TDir _)                  = return UTyDir
-infer   (TInt _)                  = return UTyInt
-infer   (TAntiInt _)              = return UTyInt
-infer   (TString _)               = return UTyString
-infer   (TAntiString _)           = return UTyString
-infer   (TBool _)                 = return UTyBool
+infer   (STerm TUnit)                     = return UTyUnit
+infer   (STerm (TConst c))                = instantiate $ inferConst c
+infer   (STerm (TDir _))                  = return UTyDir
+infer   (STerm (TInt _))                  = return UTyInt
+infer   (STerm (TAntiInt _))              = return UTyInt
+infer   (STerm (TString _))               = return UTyString
+infer   (STerm (TAntiString _))           = return UTyString
+infer   (STerm (TBool _))                 = return UTyBool
 
 -- To infer the type of a pair, just infer both components.
-infer (TSPair t1 t2)               = UTyProd <$> infer t1 <*> infer t2
+infer (STerm (TPair t1 t2))               = UTyProd <$> infer t1 <*> infer t2
 
 -- delay t has the same type as t.
-infer (TSDelay t)                  = infer t
+infer (STerm (TDelay t))                  = infer t
 
 -- Just look up variables in the context.
-infer (TVar x)                    = lookup x
+infer (STerm (TVar x))                    = lookup x
 
 -- To infer the type of a lambda if the type of the argument is
 -- provided, just infer the body under an extended context and return
 -- the appropriate function type.
-infer (TSLam x (Just argTy) t)   = do
+infer (STerm (TLam x (Just argTy) t))   = do
   let uargTy = toU argTy
   resTy <- withBinding x (Forall [] uargTy) $ infer t
   return $ UTyFun uargTy resTy
 
 -- If the type of the argument is not provided, create a fresh
 -- unification variable for it and proceed.
-infer (TSLam x Nothing t) = do
+infer (STerm (TLam x Nothing t)) = do
   argTy <- fresh
   resTy <- withBinding x (Forall [] argTy) $ infer t
   return $ UTyFun argTy resTy
 
 -- To infer the type of an application:
-infer (TSApp f x)              = do
+infer (STerm (TApp f x))              = do
 
   -- Infer the type of the left-hand side and make sure it has a function type.
   fTy <- infer f
@@ -361,13 +361,13 @@ infer (TSApp f x)              = do
 
 -- We can infer the type of a let whether a type has been provided for
 -- the variable or not.
-infer (TSLet x Nothing t1 t2)    = do
+infer (STerm (TLet x Nothing t1 t2))    = do
   xTy <- fresh
   uty <- withBinding x (Forall [] xTy) $ infer t1
   xTy =:= uty
   upty <- generalize uty
   withBinding  x upty $ infer t2
-infer (TSLet x (Just pty) t1 t2) = do
+infer (STerm (TLet x (Just pty) t1 t2)) = do
   let upty = toU pty
   -- If an explicit polytype has been provided, skolemize it and check
   -- definition and body under an extended context.
@@ -376,9 +376,9 @@ infer (TSLet x (Just pty) t1 t2) = do
     check t1 uty
     infer t2
 
-infer t@TDef {} = throwError $ DefNotTopLevel t
+infer (Syntax _loc (t@TDef {})) = throwError $ DefNotTopLevel t
 
-infer (TSBind mx c1 c2) = do
+infer (STerm (TBind mx c1 c2)) = do
   ty1 <- infer c1
   a <- decomposeCmdTy ty1
   ty2 <- maybe id (`withBinding` Forall [] a) mx $ infer c2
@@ -446,7 +446,7 @@ inferConst c = toU $ case c of
   Raise        -> [tyQ| forall a. string -> cmd a |]
 
 -- | @check t ty@ checks that @t@ has type @ty@.
-check :: Term -> UType -> Infer ()
+check :: Syntax -> UType -> Infer ()
 check t ty = do
   ty' <- infer t
   _ <- ty =:= ty'
