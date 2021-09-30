@@ -264,7 +264,7 @@ inferModule = \case
   -- variable for the body, infer the body under an extended context,
   -- and unify the two.  Then generalize the type and return an
   -- appropriate context.
-  TDef x Nothing t1 -> do
+  TSDef x Nothing t1 -> do
     xTy <- fresh
     ty <- withBinding x (Forall [] xTy) $ infer t1
     xTy =:= ty
@@ -273,7 +273,7 @@ inferModule = \case
 
   -- If a (poly)type signature has been provided, skolemize it and
   -- check the definition.
-  TDef x (Just pty) t1 -> do
+  TSDef x (Just pty) t1 -> do
     let upty = toU pty
     uty <- skolemize upty
     withBinding x upty $ check t1 uty
@@ -282,7 +282,7 @@ inferModule = \case
   -- To handle a 'TBind', infer the types of both sides, combining the
   -- returned modules appropriately.  Have to be careful to use the
   -- correct context when checking the right-hand side in particular.
-  TBind mx c1 c2 -> do
+  TSBind mx c1 c2 -> do
 
     -- First, infer the left side.
     Module cmda ctx1 <- inferModule c1
@@ -325,10 +325,10 @@ infer   (TAntiString _)           = return UTyString
 infer   (TBool _)                 = return UTyBool
 
 -- To infer the type of a pair, just infer both components.
-infer (TPair t1 t2)               = UTyProd <$> infer t1 <*> infer t2
+infer (TSPair t1 t2)               = UTyProd <$> infer t1 <*> infer t2
 
 -- delay t has the same type as t.
-infer (TDelay t)                  = infer t
+infer (TSDelay t)                  = infer t
 
 -- Just look up variables in the context.
 infer (TVar x)                    = lookup x
@@ -336,20 +336,20 @@ infer (TVar x)                    = lookup x
 -- To infer the type of a lambda if the type of the argument is
 -- provided, just infer the body under an extended context and return
 -- the appropriate function type.
-infer (TLam x (Just argTy) t)   = do
+infer (TSLam x (Just argTy) t)   = do
   let uargTy = toU argTy
   resTy <- withBinding x (Forall [] uargTy) $ infer t
   return $ UTyFun uargTy resTy
 
 -- If the type of the argument is not provided, create a fresh
 -- unification variable for it and proceed.
-infer (TLam x Nothing t) = do
+infer (TSLam x Nothing t) = do
   argTy <- fresh
   resTy <- withBinding x (Forall [] argTy) $ infer t
   return $ UTyFun argTy resTy
 
 -- To infer the type of an application:
-infer (TApp f x)              = do
+infer (TSApp f x)              = do
 
   -- Infer the type of the left-hand side and make sure it has a function type.
   fTy <- infer f
@@ -361,13 +361,13 @@ infer (TApp f x)              = do
 
 -- We can infer the type of a let whether a type has been provided for
 -- the variable or not.
-infer (TLet x Nothing t1 t2)    = do
+infer (TSLet x Nothing t1 t2)    = do
   xTy <- fresh
   uty <- withBinding x (Forall [] xTy) $ infer t1
   xTy =:= uty
   upty <- generalize uty
   withBinding  x upty $ infer t2
-infer (TLet x (Just pty) t1 t2) = do
+infer (TSLet x (Just pty) t1 t2) = do
   let upty = toU pty
   -- If an explicit polytype has been provided, skolemize it and check
   -- definition and body under an extended context.
@@ -378,7 +378,7 @@ infer (TLet x (Just pty) t1 t2) = do
 
 infer t@TDef {} = throwError $ DefNotTopLevel t
 
-infer (TBind mx c1 c2) = do
+infer (TSBind mx c1 c2) = do
   ty1 <- infer c1
   a <- decomposeCmdTy ty1
   ty2 <- maybe id (`withBinding` Forall [] a) mx $ infer c2

@@ -26,13 +26,14 @@ import           Swarm.Language.Syntax
 --   also perform rewriting for overloaded constants depending on the
 --   actual type they are used at, but currently that sort of thing
 --   tends to make type inference fall over.
+--   TODO: figure out how to handle Syntax Location
 elaborate :: Term -> Term
 elaborate
 
   -- Wrap all *free* variables in 'Force'.  Free variables must be
   -- referring to a previous definition, which are all wrapped in
   -- 'TDelay'.
-  = (fvT %~ TApp (TConst Force))
+  = (fvT %~ (\t1 -> TApp (noloc $ TConst Force) (noloc t1)))
 
   -- Now do additional rewriting on all subterms.
   . transform rewrite
@@ -42,13 +43,15 @@ elaborate
     -- When if is evaluated, its arguments are eagerly evaluated, just
     -- like any function application.  This ensures that evaluation of
     -- the arguments is delayed until one of them is chosen by the if.
-    rewrite (TApp (TApp (TApp (TConst If) cond) thn) els)
-      = TApp (TConst Force) (TApp (TApp (TApp (TConst If) cond) (TDelay thn)) (TDelay els))
+    rewrite (SApp l1 (SApp l1' (SApp l1'' (TConst If) l2'' cond) l2' thn) l2 els)
+      = SApp emptyLoc (TConst Force) emptyLoc
+          (SApp l1 (SApp l1' (SApp l1'' (TConst If) l2'' cond) l2' (SDelay emptyLoc thn)) l2 (SDelay emptyLoc els))
 
     -- Rewrite any recursive occurrences of x inside t1 to (force x).
     -- When interpreting t1, we will put a binding (x |-> delay t1)
     -- in the context.
-    rewrite (TLet x ty t1 t2) = TLet x ty (mapFree1 x (TApp (TConst Force)) t1) t2
+    rewrite (TLet x ty (Syntax l1 t1) (Syntax l2 t2))
+      = TLet x ty (Syntax l1 (mapFree1 x (TApp (noloc (TConst Force)) . noloc) t1)) (Syntax l2 t2)
 
     -- Rewrite any recursive occurrences of x inside t1 to (force x).
     -- When a TDef is encountered at runtime its body will immediately
@@ -56,13 +59,13 @@ elaborate
     -- to wrap all free variables in any term with 'force' --- since
     -- any such variables must in fact refer to things previously
     -- bound by 'def'.
-    rewrite (TDef x ty t1) = TDef x ty (mapFree1 x (TApp (TConst Force)) t1)
+    rewrite (TDef x ty (Syntax l1 t1)) = TDef x ty (Syntax l1 (mapFree1 x (TApp (noloc $ TConst Force) . noloc) t1))
 
     -- Delay evaluation of the program argument to a 'Build' command,
     -- so it will be evaluated by the constructed robot instead of the one
     -- doing the constructing.
-    rewrite (TApp (TApp (TConst Build) nm) prog)
-      = TApp (TApp (TConst Build) nm) (TDelay prog)
+    rewrite (SApp l1 (SApp l1' (TConst Build) l2 nm) l2' prog)
+      = SApp l1 (SApp l1' (TConst Build) l2 nm) l2' (TDelay (Syntax l2' prog))
 
     -- Leave any other subterms alone.
     rewrite t = t

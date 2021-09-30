@@ -30,7 +30,18 @@ module Swarm.Language.Syntax
   , arity, isCmd
 
     -- * Terms
-  , Var, Term(..)
+  , Var, Term(..), Syntax(..), Location(..)
+  , noloc, emptyLoc
+  , pattern STerm
+  , pattern TSPair
+  , pattern TSLam
+  , pattern TSApp
+  , pattern SApp
+  , pattern TSLet
+  , pattern TSBind
+  , pattern TSDelay
+  , pattern SDelay
+  , pattern TSDef
 
     -- * Term traversal
 
@@ -238,6 +249,53 @@ isCmd c = c `notElem` funList
   where
     funList = [If, Force, Not, Neg, Fst, Snd]
 
+-- | The surface syntax for the language
+data Location = Location { locStart :: Int, locEnd :: Int }
+  deriving (Eq, Show, Data)
+
+data Syntax = Syntax { sLoc :: Location, sTerm :: Term }
+  deriving (Eq, Show, Data)
+
+emptyLoc :: Location
+emptyLoc = Location 0 0
+noloc :: Term -> Syntax
+noloc = Syntax emptyLoc
+
+-- | Match a term without its a syntax
+pattern STerm :: Term -> Syntax
+pattern STerm a <- Syntax _ a
+{-# COMPLETE STerm :: Syntax #-}
+
+-- | Unpack Syntax TApp
+pattern SApp :: Location -> Term -> Location -> Term -> Term
+pattern SApp l1 t1 l2 t2 = TApp (Syntax l1 t1) (Syntax l2 t2)
+-- | Unpack Syntax TDelay
+pattern SDelay :: Location -> Term -> Term
+pattern SDelay l t = TDelay (Syntax l t)
+
+-- | Match TPair, TLam, TApp, TLet, TBind, TDelay and TDef term without syntax
+pattern TSPair :: Term -> Term -> Term
+pattern TSPair t1 t2 <- TPair (STerm t1) (STerm t2)
+
+pattern TSLam :: Var -> Maybe Type -> Term -> Term
+pattern TSLam v t t1 <- TLam v t (STerm t1)
+
+pattern TSApp :: Term -> Term -> Term
+pattern TSApp t1 t2 <- TApp (STerm t1) (STerm t2)
+
+pattern TSLet :: Var -> Maybe Polytype -> Term -> Term -> Term
+pattern TSLet v pt t1 t2 <- TLet v pt (STerm t1) (STerm t2)
+
+pattern TSBind :: Maybe Var -> Term -> Term -> Term
+pattern TSBind v t1 t2 <- (TBind v (STerm t1) (STerm t2))
+
+pattern TSDelay :: Term -> Term
+pattern TSDelay t <- TDelay (STerm t)
+
+pattern TSDef :: Var -> Maybe Polytype -> Term -> Term
+pattern TSDef v pt t <- TDef v pt (STerm t)
+
+
 ------------------------------------------------------------
 -- Terms
 
@@ -272,25 +330,25 @@ data Term
   | TVar Var
 
     -- | A pair.
-  | TPair Term Term
+  | TPair Syntax Syntax
 
     -- | A lambda expression, with or without a type annotation on the
     --   binder.
-  | TLam Var (Maybe Type) Term
+  | TLam Var (Maybe Type) Syntax
 
     -- | Function application.
-  | TApp Term Term
+  | TApp Syntax Syntax
 
     -- | A (recursive) let expression, with or without a type
     --   annotation on the variable.
-  | TLet Var (Maybe Polytype) Term Term
+  | TLet Var (Maybe Polytype) Syntax Syntax
 
     -- | A (recursive) definition command, which binds a variable to a
     --   value in subsequent commands.
-  | TDef Var (Maybe Polytype) Term
+  | TDef Var (Maybe Polytype) Syntax
 
     -- | A monadic bind for commands, of the form @c1 ; c2@ or @x <- c1; c2@.
-  | TBind (Maybe Var) Term Term
+  | TBind (Maybe Var) Syntax Syntax
 
     -- | Delay evaluation of a term.  Swarm is an eager language, but
     --   in some cases (e.g. for @if@ statements and recursive
@@ -299,7 +357,7 @@ data Term
     --   'Force' is just a constant, whereas 'TDelay' has to be a
     --   special syntactic form so its argument can get special
     --   treatment during evaluation.
-  | TDelay Term
+  | TDelay Syntax
   deriving (Eq, Show, Data)
 
 instance Plated Term where
@@ -322,16 +380,16 @@ fvT f = go S.empty
       TVar x
         | x `S.member` bound -> pure t
         | otherwise          -> f (TVar x)
-      TLam x ty t1 -> TLam x ty <$> go (S.insert x bound) t1
-      TApp t1 t2  -> TApp <$> go bound t1 <*> go bound t2
-      TLet x ty t1 t2 ->
+      TLam x ty (Syntax l1 t1) -> TLam x ty <$> (Syntax l1 <$> go (S.insert x bound) t1)
+      TApp (Syntax l1 t1) (Syntax l2 t2)  -> TApp <$> (Syntax l1 <$> go bound t1) <*> (Syntax l2 <$> go bound t2)
+      TLet x ty (Syntax l1 t1) (Syntax l2 t2) ->
         let bound' = S.insert x bound
-        in  TLet x ty <$> go bound' t1 <*> go bound' t2
-      TPair t1 t2 -> TPair <$> go bound t1 <*> go bound t2
-      TDef x ty t1 -> TDef x ty <$> go (S.insert x bound) t1
-      TBind mx t1 t2 ->
-        TBind mx <$> go bound t1 <*> go (maybe id S.insert mx bound) t2
-      TDelay t1 -> TDelay <$> go bound t1
+        in  TLet x ty <$> (Syntax l1 <$> go bound' t1) <*> (Syntax l2 <$> go bound' t2)
+      TPair (Syntax l1 t1) (Syntax l2 t2) -> TPair <$> (Syntax l1 <$> go bound t1) <*> (Syntax l2 <$> go bound t2)
+      TDef x ty (Syntax l1 t1) -> TDef x ty <$> (Syntax l1 <$> go (S.insert x bound) t1)
+      TBind mx (Syntax l1 t1) (Syntax l2 t2) ->
+        TBind mx <$> (Syntax l1 <$> go bound t1) <*> (Syntax l2 <$> go (maybe id S.insert mx bound) t2)
+      TDelay (Syntax l1 t1) -> TDelay <$> (Syntax l1 <$> go bound t1)
 
 -- | Traversal over the free variables of a term.  Note that if you
 --   want to get the set of all free variables, you can do so via

@@ -68,7 +68,7 @@ processParsedTerm = processParsedTerm' empty empty
 -- | Like 'processTerm', but use explicit starting contexts.
 processTerm' :: TCtx -> CapCtx -> Text -> Either Text ProcessedTerm
 processTerm' ctx capCtx txt = do
-  t <- readTerm txt
+  Syntax _ t <- readTerm txt
   processParsedTerm' ctx capCtx t
 
 -- | Like 'processTerm'', but use a term that has already been parsed.

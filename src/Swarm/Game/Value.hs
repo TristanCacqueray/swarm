@@ -108,17 +108,19 @@ valueToTerm (VInt n)         = TInt n
 valueToTerm (VString s)      = TString s
 valueToTerm (VDir d)         = TDir d
 valueToTerm (VBool b)        = TBool b
-valueToTerm (VPair v1 v2)    = TPair (valueToTerm v1) (valueToTerm v2)
+valueToTerm (VPair v1 v2)    = TPair (noloc $ valueToTerm v1) (noloc $ valueToTerm v2)
 valueToTerm (VClo x t e)     =
   M.foldrWithKey
-    (\y v -> TLet y Nothing (valueToTerm v))
-    (TLam x Nothing t)
+    (\y v -> TLet y Nothing (noloc $ valueToTerm v) . noloc)
+    (TLam x Nothing (noloc t))
     (M.restrictKeys (unCtx e) (S.delete x (setOf fv t)))
-valueToTerm (VCApp c vs)     = foldl' TApp (TConst c) (reverse (map valueToTerm vs))
-valueToTerm (VDef x t _)     = TDef x Nothing t
+valueToTerm (VCApp c vs)     =
+  let Syntax _ t = foldl' (\t1 t2 -> noloc $ TApp t1 t2) (noloc $ TConst c) (reverse (map (noloc . valueToTerm) vs))
+   in t
+valueToTerm (VDef x t _)     = TDef x Nothing (noloc t)
 valueToTerm (VResult v _)    = valueToTerm v
-valueToTerm (VBind mx c1 c2 _) = TBind mx c1 c2
-valueToTerm (VDelay _ t _)   = TDelay t
+valueToTerm (VBind mx c1 c2 _) = TBind mx (noloc c1) (noloc c2)
+valueToTerm (VDelay _ t _)   = TDelay (noloc t)
 
 -- | An environment is a mapping from variable names to values.
 type Env = Ctx Value

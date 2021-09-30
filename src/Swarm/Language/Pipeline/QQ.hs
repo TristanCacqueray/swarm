@@ -49,7 +49,7 @@ quoteTermExp s = do
         (TH.loc_filename loc,
          fst (TH.loc_start loc),
          snd (TH.loc_start loc))
-  parsed <- runParserTH pos parseTerm s
+  Syntax _ parsed <- runParserTH pos parseTerm s
   case processParsedTerm parsed of
     Left errMsg -> fail $ from errMsg
     Right ptm   -> dataToExpQ ((fmap liftText . cast) `extQ` antiTermExp) ptm

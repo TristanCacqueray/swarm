@@ -146,25 +146,25 @@ instance PrettyPrec Term where
   prettyPrec _ (TAntiString v) = "$str:" <> pretty v
   prettyPrec _ (TBool b)     = bool "false" "true" b
   prettyPrec _ (TVar s)      = pretty s
-  prettyPrec p (TDelay t)    = pparens (p > 10) $ "delay" <+> prettyPrec 11 t
-  prettyPrec _ (TPair t1 t2) = pparens True $ ppr t1 <> "," <+> ppr t2
-  prettyPrec _ (TLam x mty body) =
+  prettyPrec p (TSDelay t)    = pparens (p > 10) $ "delay" <+> prettyPrec 11 t
+  prettyPrec _ (TSPair t1 t2) = pparens True $ ppr t1 <> "," <+> ppr t2
+  prettyPrec _ (TSLam x mty body) =
     "\\" <> pretty x <> maybe "" ((":" <>) . ppr) mty <> "." <+> ppr body
-  prettyPrec p (TApp t1 t2)  = pparens (p > 10) $
+  prettyPrec p (TSApp t1 t2)  = pparens (p > 10) $
     prettyPrec 10 t1 <+> prettyPrec 11 t2
-  prettyPrec _ (TLet x mty t1 t2) =
+  prettyPrec _ (TSLet x mty t1 t2) =
     hsep $
       ["let", pretty x] ++
       maybe [] (\ty -> [":", ppr ty]) mty ++
       ["=", ppr t1, "in", ppr t2]
-  prettyPrec _ (TDef x mty t1) =
+  prettyPrec _ (TSDef x mty t1) =
     hsep $
       ["def", pretty x] ++
       maybe [] (\ty -> [":", ppr ty]) mty ++
       ["=", ppr t1, "end"]
-  prettyPrec p (TBind Nothing t1 t2) = pparens (p > 0) $
+  prettyPrec p (TSBind Nothing t1 t2) = pparens (p > 0) $
     prettyPrec 1 t1 <> ";" <+> prettyPrec 0 t2
-  prettyPrec p (TBind (Just x) t1 t2) = pparens (p > 0) $
+  prettyPrec p (TSBind (Just x) t1 t2) = pparens (p > 0) $
     pretty x <+> "<-" <+> prettyPrec 1 t1  <> ";" <+> prettyPrec 0 t2
 
 instance PrettyPrec TypeErr where

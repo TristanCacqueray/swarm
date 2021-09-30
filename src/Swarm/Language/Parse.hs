@@ -202,8 +202,15 @@ parseConst =
   <|> Try     <$ reserved "try"
   <|> Raise   <$ reserved "raise"
 
-parseTermAtom :: Parser Term
-parseTermAtom =
+parseTermAtom :: Parser Syntax
+parseTermAtom = do
+  start <- getOffset
+  term <- parseTermAtom'
+  end <- getOffset
+  pure $ Syntax (Location start end) term
+
+parseTermAtom' :: Parser Term
+parseTermAtom' =
       TUnit   <$  symbol "()"
   <|> TConst  <$> parseConst
   <|> TVar    <$> identifier
@@ -221,9 +228,9 @@ parseTermAtom =
   <|> TDef    <$> (reserved "def" *> identifier)
               <*> optional (symbol ":" *> parsePolytype)
               <*> (symbol "=" *> parseTerm <* reserved "end")
-  <|> parens parseTerm
+  <|> parens parseTerm'
   <|> TConst Noop <$ try (symbol "{" *> symbol "}")
-  <|> braces parseTerm
+  <|> braces parseTerm'
   <|> (ask >>= (guard . (==AllowAntiquoting)) >> parseAntiquotation)
 
 parseAntiquotation :: Parser Term
@@ -232,28 +239,34 @@ parseAntiquotation =
   <|> TAntiInt    <$> (lexeme . try) (symbol "$int:" *> identifier)
 
 -- | Parse a Swarm language term.
-parseTerm :: Parser Term
+parseTerm :: Parser Syntax
 parseTerm = sepEndBy1 parseStmt (symbol ";") >>= mkBindChain
 
-mkBindChain :: [Stmt] -> Parser Term
+parseTerm' :: Parser Term
+parseTerm' = do
+  Syntax _ term <- parseTerm
+  pure term
+
+mkBindChain :: [Stmt] -> Parser Syntax
 mkBindChain stmts = case last stmts of
   Binder _ _ -> fail "Last command in a chain must not have a binder"
   BareTerm t -> return $ foldr mkBind t (init stmts)
 
   where
-    mkBind (BareTerm t1) t2 = TBind Nothing t1 t2
-    mkBind (Binder x t1) t2 = TBind (Just x) t1 t2
+    -- TODO: figure out the correct location of these rewrites
+    mkBind (BareTerm t1) t2 = noloc $ TBind Nothing t1 t2
+    mkBind (Binder x t1) t2 = noloc $ TBind (Just x) t1 t2
 
 data Stmt
-  = BareTerm      Term
-  | Binder   Text Term
+  = BareTerm      Syntax
+  | Binder   Text Syntax
   deriving (Show)
 
 parseStmt :: Parser Stmt
 parseStmt =
   mkStmt <$> optional (try (identifier <* symbol "<-")) <*> parseExpr
 
-mkStmt :: Maybe Text -> Term -> Stmt
+mkStmt :: Maybe Text -> Syntax -> Stmt
 mkStmt Nothing  = BareTerm
 mkStmt (Just x) = Binder x
 
@@ -263,32 +276,33 @@ mkStmt (Just x) = Binder x
 --     App (App (TDef a) (TDef b)) (TDef x)
 --   This function fix that by converting the Apps into Binds, so that it results in:
 --     Bind a (Bind b (Bind c))
-fixDefMissingSemis :: Term -> Term
+fixDefMissingSemis :: Syntax -> Syntax
 fixDefMissingSemis term =
   case nestedDefs term [] of
     [] -> term
-    defs -> foldr1 (TBind Nothing) defs
+    -- TODO: figure out what should be the Syntax Location of this rewrite
+    defs -> foldr1 (\t1 t2 -> noloc $ TBind Nothing t1 t2) defs
   where
     nestedDefs term' acc = case term' of
-      def@TDef {} -> def : acc
-      TApp nestedTerm def@TDef {} -> nestedDefs nestedTerm (def : acc)
+      def@(Syntax _ TDef {}) -> def : acc
+      (Syntax _ (TApp nestedTerm def@(Syntax _ TDef {}))) -> nestedDefs nestedTerm (def : acc)
       -- Otherwise returns an empty list to keep the term unchanged
       _ -> []
 
-parseExpr :: Parser Term
+parseExpr :: Parser Syntax
 parseExpr = fixDefMissingSemis <$> makeExprParser parseTermAtom table
   where
     table =
-      [ [ InfixL (TApp <$ string "") ]
-      , [ InfixR (mkOp (Arith Exp) <$ symbol "^") ]
-      , [ Prefix (TApp (TConst Neg) <$ symbol "-") ]
-      , [ InfixL (mkOp (Arith Mul) <$ symbol "*")
-        , InfixL (mkOp (Arith Div) <$ symbol "/")
+      [ [ InfixL (sinfix (TApp <$ string "")) ]
+      , [ InfixR (sinfix $ mkOp (Arith Exp) <$ symbol "^") ]
+      , [ Prefix (sprefix $ TApp (noloc $ TConst Neg) <$ symbol "-") ]
+      , [ InfixL (sinfix $ mkOp (Arith Mul) <$ symbol "*")
+        , InfixL (sinfix $ mkOp (Arith Div) <$ symbol "/")
         ]
-      , [ InfixL (mkOp (Arith Add) <$ symbol "+")
-        , InfixL (mkOp (Arith Sub) <$ symbol "-")
+      , [ InfixL (sinfix $ mkOp (Arith Add) <$ symbol "+")
+        , InfixL (sinfix $ mkOp (Arith Sub) <$ symbol "-")
         ]
-      , map (\(s, op) -> InfixN (mkOp (Cmp op) <$ symbol s))
+      , map (\(s, op) -> InfixN (sinfix $ mkOp (Cmp op) <$ symbol s))
         [ ("==", CmpEq)
         , ("/=", CmpNeq)
         , ("<=", CmpLeq)
@@ -296,11 +310,28 @@ parseExpr = fixDefMissingSemis <$> makeExprParser parseTermAtom table
         , ("<", CmpLt)
         , (">", CmpGt)
         ]
-      , [ InfixR (TPair <$ symbol ",") ]
+      , [ InfixR (sinfix $ TPair <$ symbol ",") ]
       ]
 
-mkOp :: Const -> Term -> Term -> Term
-mkOp c = TApp . TApp (TConst c)
+sprefix :: Parser (Syntax -> Term) -> Parser (Syntax -> Syntax)
+sprefix p = do
+  -- TODO: There got to be a better way to attach the location in makeExprParserw
+  start <- getOffset
+  f <- p
+  end <- getOffset
+  pure $ \s1 -> Syntax (Location start end) (f s1)
+
+sinfix :: Parser (Syntax -> Syntax -> Term) -> Parser (Syntax -> Syntax -> Syntax)
+sinfix p = do
+  -- TODO: There got to be a better way to attach the location in makeExprParserw
+  start <- getOffset
+  f <- p
+  end <- getOffset
+  pure $ \s1 s2 -> Syntax (Location start end) (f s1 s2)
+
+mkOp :: Const -> Syntax -> Syntax -> Term
+mkOp c t1@(Syntax l1 _) = TApp (Syntax l1 (TApp (noloc $ TConst c) t1))
+
 
 --------------------------------------------------
 -- Utilities
@@ -347,5 +378,5 @@ fully p = sc *> p <* eof
 --   whitespace and ensuring the parsing extends all the way to the
 --   end of the input 'Text'.  Returns either the resulting 'Term' or
 --   a pretty-printed parse error message.
-readTerm :: Text -> Either Text Term
+readTerm :: Text -> Either Text Syntax
 readTerm = runParser (fully parseTerm)
