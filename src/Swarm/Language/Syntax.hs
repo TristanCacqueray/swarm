@@ -62,6 +62,7 @@ import           Data.Hashable        (Hashable)
 import           GHC.Generics         (Generic)
 
 import           Swarm.Language.Types
+import           Swarm.Language.Location
 
 ------------------------------------------------------------
 -- Constants
@@ -250,21 +251,15 @@ isCmd c = c `notElem` funList
     funList = [If, Force, Not, Neg, Fst, Snd]
 
 -- | The surface syntax for the language
-data Location = Location { locStart :: Int, locEnd :: Int }
-  deriving (Eq, Show, Data)
-
 data Syntax = Syntax { sLoc :: Location, sTerm :: Term }
   deriving (Eq, Show, Data)
 
-emptyLoc :: Location
-emptyLoc = Location 0 0
 noloc :: Term -> Syntax
 noloc = Syntax emptyLoc
 
 -- | Match a term without its a syntax
 pattern STerm :: Term -> Syntax
 pattern STerm a <- Syntax _ a
-{-# COMPLETE STerm :: Syntax #-}
 
 -- | Unpack Syntax TApp
 pattern SApp :: Location -> Term -> Location -> Term -> Term
