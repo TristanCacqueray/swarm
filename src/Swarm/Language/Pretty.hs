@@ -171,11 +171,11 @@ instance PrettyPrec TypeErr where
   prettyPrec _ (Mismatch ty1 ty2) =
     "Can't unify" <+> ppr ty1 <+> "and" <+> ppr ty2
 
-  prettyPrec _ (UnboundVar x) =
-    "Unbound variable" <+> pretty x
+  prettyPrec _ (UnboundVar loc x) =
+    (fromString (show loc) <+> "Unbound variable") <+> pretty x
 
   prettyPrec _ (Infinite x uty) =
     "Infinite type:" <+> ppr x <+> "=" <+> ppr uty
 
-  prettyPrec _ (DefNotTopLevel t) =
-    "Definitions may only be at the top level:" <+> ppr t
+  prettyPrec _ (DefNotTopLevel loc t) =
+    (fromString (show loc) <+> "Definitions may only be at the top level:") <+> ppr t
