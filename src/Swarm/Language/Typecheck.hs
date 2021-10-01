@@ -239,6 +239,8 @@ data TypeErr
   -- different type instead.
   | Mismatch (TypeF UType) (TypeF UType)
 
+  | LocatedMismatch Location (TypeF UType) (TypeF UType)
+
   -- | A definition was encountered not at the top level.
   | DefNotTopLevel Location Term
 
@@ -352,21 +354,21 @@ infer (STerm (TLam x Nothing t)) = do
 infer (STerm (TApp f x))              = do
 
   -- Infer the type of the left-hand side and make sure it has a function type.
-  fTy <- infer f
+  fTy <- locatedInfer f
   (ty1, ty2) <- decomposeFunTy fTy
 
   -- Then check that the argument has the right type.
-  check x ty1
+  check x ty1 `catchError` handleMismatch x
   return ty2
 
 -- We can infer the type of a let whether a type has been provided for
 -- the variable or not.
 infer (STerm (TLet x Nothing t1 t2))    = do
   xTy <- fresh
-  uty <- withBinding x (Forall [] xTy) $ infer t1
+  uty <- withBinding x (Forall [] xTy) $ locatedInfer t1
   xTy =:= uty
   upty <- generalize uty
-  withBinding  x upty $ infer t2
+  withBinding  x upty $ locatedInfer t2
 infer (STerm (TLet x (Just pty) t1 t2)) = do
   let upty = toU pty
   -- If an explicit polytype has been provided, skolemize it and check
@@ -384,6 +386,14 @@ infer (STerm (TBind mx c1 c2)) = do
   ty2 <- maybe id (`withBinding` Forall [] a) mx $ infer c2
   _ <- decomposeCmdTy ty2
   return ty2
+
+locatedInfer :: Syntax -> Infer UType
+locatedInfer s = infer s `catchError` handleMismatch s
+
+handleMismatch :: Syntax -> TypeErr -> Infer a
+handleMismatch s te = case te of
+  Mismatch a b -> throwError $ LocatedMismatch (sLoc s) a b
+  _ -> throwError te
 
 -- | Decompose a type that is supposed to be a command type.
 decomposeCmdTy :: UType -> Infer UType

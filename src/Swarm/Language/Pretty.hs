@@ -171,6 +171,9 @@ instance PrettyPrec TypeErr where
   prettyPrec _ (Mismatch ty1 ty2) =
     "Can't unify" <+> ppr ty1 <+> "and" <+> ppr ty2
 
+  prettyPrec _ (LocatedMismatch loc ty1 ty2) =
+    fromString (show loc) <+> "Can't unify" <+> ppr ty1 <+> "and" <+> ppr ty2
+
   prettyPrec _ (UnboundVar loc x) =
     (fromString (show loc) <+> "Unbound variable") <+> pretty x
 
