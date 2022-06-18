@@ -56,7 +56,9 @@ import Swarm.Language.Capability
 import Swarm.Language.Context hiding (delete)
 import Swarm.Language.Pipeline
 import Swarm.Language.Pipeline.QQ (tmQ)
+import Swarm.Language.Pretty (prettyText)
 import Swarm.Language.Syntax
+import Swarm.Language.Types (Module (..))
 import Swarm.Util
 
 import Control.Carrier.Error.Either (runError)
@@ -662,6 +664,20 @@ execConst c vs s k = do
   -- Now proceed to actually carry out the operation.
   case c of
     Noop -> return $ Out VUnit s k
+    Info -> case vs of
+      [VString name] -> do
+        mt <-
+          processTerm (into @Text name) `isRightOr` \err ->
+            cmdExn Run ["Invalid info argument: \"", name, "\"\n", err]
+
+        let info = case mt of
+              Just (ProcessedTerm (TConst _) (Module pt _) _ _) ->
+                name <> " :: " <> prettyText pt
+              Nothing -> "Unkown command: " <> name
+              Just _ -> "Invalid term: " <> name
+
+        return $ Out (VString info) s k
+      _ -> badConst
     Return -> case vs of
       [v] -> return $ Out v s k
       _ -> badConst
